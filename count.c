@@ -9,6 +9,9 @@
 // this one is only accessebile in this file 
 static int global = 0;
 
+// uint32_t value;
+// __asm__(this defines the inline assembly) __volatile__(this tells the compiler not to optimize the assembly code)("csrr %0, sepc" : "=r"(value));
+
 
 int main(void) {
     int local = 0;
