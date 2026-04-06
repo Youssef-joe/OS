@@ -1,6 +1,10 @@
 #include "kernel.h"
 #include "common.h"
-
+#define PANIC(fmt, ...)                                                        \
+    do {                                                                       \
+        printf("PANIC: %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);  \
+        while (1) {}                                                           \
+    } while (0)
 extern char __bss[], __bss_end[], __stack_top[];
 
 __attribute__((section(".text.boot")))
@@ -40,7 +44,10 @@ void kernel_main(void) {
     // for (int i = 0; s[i] != '\0'; ++i) {
     //     putchar(s[i]);
     // }
+    memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
+    PANIC("booted!");
+    printf("unreachable here!\n");
     printf("\n\nHello %s\n", "World!");
     printf("1 + 2 = %d, %x\n", 1 + 2, 0x1234abcd);
 
