@@ -121,7 +121,7 @@ struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, lo
 }
 
 void putchar(char ch) {
-    sbi_call(ch, 0, 0, 0, 0, 0, 1, 1);
+    sbi_call((long)ch, 0, 0, 0, 0, 0, 1, 1);
 }
 
 extern char __free_ram[], __free_ram_end[];
