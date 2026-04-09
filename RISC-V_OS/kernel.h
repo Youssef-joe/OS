@@ -1,5 +1,15 @@
 #pragma once
 #include "common.h"
+#define PROCS_MAX 8 // that is the maximum number of processes as it shown
+#define PROC_UNUSED 0 // unused process control structure 
+#define PROC_RANNABLE 1 // if you are that dumb -> that means the runnable process 
+
+struct process {
+    int pid; // you're not dumb now as i didn't recognize it at first, that is the process id
+    int state; // that is the process stat (if ykyk) ;)
+    vaddr_t sp; // that iss the stack pointer (a great topic that u can search about)
+    uint8_t stack[8192]; // kernel stack (if you're jobless search for it)
+};
 
 struct  sbiret
 {
@@ -8,7 +18,7 @@ struct  sbiret
 };
 
 
-struct trap_frame {
+ struct trap_frame {
     uint32_t ra;
     uint32_t gp;
     uint32_t tp;
