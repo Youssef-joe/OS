@@ -2,6 +2,7 @@ ENTRY(boot)
 
 SECTIONS {
     . = 0x80200000;
+    __kernel_base = .; /* NOTE: if the order is reversed with the previous line, the value of the current line would be zero */
 
     .text :{
         KEEP(*(.text.boot));

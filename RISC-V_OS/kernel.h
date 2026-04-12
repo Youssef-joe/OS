@@ -3,11 +3,18 @@
 #define PROCS_MAX 8 // that is the maximum number of processes as it shown
 #define PROC_UNUSED 0 // unused process control structure 
 #define PROC_RUNNABLE 1 // if you are that dumb -> that means the runnable process 
+#define SATP_SV32 (1u << 31)
+#define PAGE_V (1 << 0) // "valid" bit (entry is enabled)
+#define PAGE_R (1 << 1) //Readable
+#define PAGE_W (1 << 2) // Writeable
+#define PAGE_X (1 << 3) //Executable
+#define PAGE_U (1 << 4) //User (accessible in user mode)
 
 struct process {
     int pid; // you're not dumb now as i didn't recognize it at first, that is the process id
     int state; // that is the process stat (if ykyk) ;)
     vaddr_t sp; // that iss the stack pointer (a great topic that u can search about)
+    uint32_t *page_table; // here we're adding the page table. this will be a pointer to 1st-level page table
     uint8_t stack[8192]; // kernel stack (if you're jobless search for it)
 };
 
