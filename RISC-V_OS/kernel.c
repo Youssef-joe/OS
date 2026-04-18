@@ -7,6 +7,7 @@
     } while (0)
 extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
+extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
 
 void switch_context(uint32_t *prev_sp, uint32_t *next_sp);
 void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags);
@@ -14,6 +15,18 @@ void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags);
 extern struct process procs[];
 extern struct process *current_proc;
 extern struct process *idle_proc;
+
+// ↓ __attribute__((naked)) is very important!
+__attribute__((naked)) void user_entry(void) {
+    __asm__ __volatile__(
+        "csrw sepc, %[sepc]        \n"
+        "csrw sstatus, %[sstatus]  \n"
+        "sret                      \n"
+        :
+        : [sepc] "r" (USER_BASE),
+          [sstatus] "r" (SSTATUS_SPIE)
+    );
+}
 
 __attribute__((section(".text.boot")))
 __attribute__((naked))
@@ -218,7 +231,8 @@ struct process procs[PROCS_MAX];
 
 extern char __kernel_base[];
 
-struct process *create_process(uint32_t pc) {
+
+struct process *create_process(const void *image, size_t image_size) {
     // let's find the unused process control structure
     struct process *proc = NULL;
     int i;
@@ -247,12 +261,21 @@ struct process *create_process(uint32_t pc) {
     *--sp = 0;                      // s2
     *--sp = 0;                      // s1
     *--sp = 0;                      // s0
-    *--sp = (uint32_t) pc;          // ra
+    *--sp = (uint32_t) user_entry;          // ra (we chenged it here)
 
     uint32_t *page_table = (uint32_t *) alloc_pages(1);
     for (paddr_t paddr = (paddr_t) __kernel_base;
             paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
     map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+
+    for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
+        paddr_t page = alloc_pages(1);
+        size_t remaining = image_size - off;
+        size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
+
+        memcpy((void *) page, image + off, copy_size);
+        map_page(page_table, USER_BASE + off, page, PAGE_U | PAGE_R | PAGE_W | PAGE_X);
+    }
 
     // Initialize fields.
     proc->pid = i + 1;
@@ -319,6 +342,8 @@ void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags) {
     table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
 }
 
+
+
 void kernel_main(void) {
     // const char *s = "\n\nHello World!\n";
     // for (int i = 0; s[i] != '\0'; ++i) {
@@ -334,12 +359,13 @@ void kernel_main(void) {
 
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
 
-    idle_proc = create_process((uint32_t) NULL);
+    // idle_proc = create_process((uint32_t) NULL);
+    idle_proc = create_process(NULL, 0);
     idle_proc->pid = 0; // idle wink wink
     current_proc = idle_proc;
 
-    proc_a = create_process((uint32_t) proc_a_entry);
-    proc_b = create_process((uint32_t) proc_b_entry);
+    proc_a = create_process(proc_a_entry, 0);
+    proc_b = create_process(proc_b_entry, 0);
 
     yield();
     PANIC("switched to idle process");

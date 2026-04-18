@@ -7,7 +7,7 @@ QEMU=qemu-system-riscv32
 CC=/usr/local/opt/llvm/bin/clang  # Ubuntu users: use CC=clang
 CFLAGS="-std=c11 -O2 -g3 -Wall -Wextra --target=riscv32-unknown-elf -fuse-ld=lld -fno-stack-protector -ffreestanding -nostdlib -fno-builtin"
 
-OBJCOPY=/opt/homebrew/opt/llvm/bin/llvm-objcopy
+OBJCOPY=/usr/local/opt/llvm/bin/llvm-objcopy
 
 # Build the shell (application)
 $CC $CFLAGS -Wl,-Tuser.ld -Wl,-Map=shell.map -o shell.elf shell.c user.c common.c
