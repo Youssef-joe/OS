@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="1020" viewBox="0 0 800 1020" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#555" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-white" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="1020" fill="#f8f7f4"/>
+
+  <!-- Title -->
+  <text x="400" y="36" text-anchor="middle" font-size="20" font-weight="600" fill="#1a1a18">RISC-V OS Architecture</text>
+  <text x="400" y="56" text-anchor="middle" font-size="12" fill="#888">QEMU · SV32 Paging · Round-robin scheduler</text>
+
+  <!-- ═══════════════════════════════════════════════════
+       USER SPACE
+  ═══════════════════════════════════════════════════ -->
+  <!-- Outer container -->
+  <rect x="30" y="72" width="740" height="218" rx="16" fill="#e1f5ee" stroke="#1d9e75" stroke-width="1.5"/>
+  <text x="52" y="98" font-size="14" font-weight="600" fill="#085041">User space</text>
+  <text x="52" y="114" font-size="11" fill="#0f6e56">Virtual addresses starting at 0x1000000</text>
+
+  <!-- Process A -->
+  <rect x="52" y="124" width="200" height="144" rx="10" fill="#9fe1cb" stroke="#1d9e75" stroke-width="1"/>
+  <rect x="52" y="124" width="200" height="32" rx="10" fill="#1d9e75"/>
+  <rect x="52" y="144" width="200" height="12" fill="#1d9e75"/>
+  <text x="152" y="146" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Process A</text>
+  <text x="152" y="176" text-anchor="middle" font-size="11" fill="#085041">proc_a_entry()</text>
+  <text x="152" y="196" text-anchor="middle" font-size="11" fill="#085041">Prints 'A' to console</text>
+  <text x="152" y="216" text-anchor="middle" font-size="11" fill="#085041">Calls yield() → ecall</text>
+  <text x="152" y="236" text-anchor="middle" font-size="11" fill="#0f6e56">Runs in user mode (U-mode)</text>
+  <text x="152" y="256" text-anchor="middle" font-size="11" fill="#0f6e56">Virtual addr: 0x1000000</text>
+
+  <!-- Process B -->
+  <rect x="268" y="124" width="200" height="144" rx="10" fill="#9fe1cb" stroke="#1d9e75" stroke-width="1"/>
+  <rect x="268" y="124" width="200" height="32" rx="10" fill="#1d9e75"/>
+  <rect x="268" y="144" width="200" height="12" fill="#1d9e75"/>
+  <text x="368" y="146" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Process B</text>
+  <text x="368" y="176" text-anchor="middle" font-size="11" fill="#085041">proc_b_entry()</text>
+  <text x="368" y="196" text-anchor="middle" font-size="11" fill="#085041">Prints 'B' to console</text>
+  <text x="368" y="216" text-anchor="middle" font-size="11" fill="#085041">Calls yield() → ecall</text>
+  <text x="368" y="236" text-anchor="middle" font-size="11" fill="#0f6e56">Runs in user mode (U-mode)</text>
+  <text x="368" y="256" text-anchor="middle" font-size="11" fill="#0f6e56">Virtual addr: 0x1000000</text>
+
+  <!-- Shell -->
+  <rect x="484" y="124" width="264" height="144" rx="10" fill="#d3d1c7" stroke="#888780" stroke-width="1"/>
+  <rect x="484" y="124" width="264" height="32" rx="10" fill="#5f5e5a"/>
+  <rect x="484" y="144" width="264" height="12" fill="#5f5e5a"/>
+  <text x="616" y="146" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Shell (shell.c)</text>
+  <text x="616" y="176" text-anchor="middle" font-size="11" fill="#2c2c2a">Writes directly to 0x80200000</text>
+  <text x="616" y="196" text-anchor="middle" font-size="11" fill="#2c2c2a">Infinite loop — not scheduled</text>
+  <text x="616" y="216" text-anchor="middle" font-size="11" fill="#444441">Demonstrates user-space I/O</text>
+  <text x="616" y="236" text-anchor="middle" font-size="11" fill="#444441">Would use SBI in production</text>
+  <text x="616" y="256" text-anchor="middle" font-size="11" fill="#5f5e5a">(currently idle / not running)</text>
+
+  <!-- USER → KERNEL transition arrow -->
+  <line x1="400" y1="292" x2="400" y2="328" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="290" y="297" width="220" height="18" rx="4" fill="#f8f7f4"/>
+  <text x="400" y="310" text-anchor="middle" font-size="11" fill="#555">ecall / trap → supervisor mode</text>
+
+  <!-- ═══════════════════════════════════════════════════
+       KERNEL SPACE
+  ═══════════════════════════════════════════════════ -->
+  <rect x="30" y="332" width="740" height="448" rx="16" fill="#eeedfe" stroke="#534ab7" stroke-width="1.5"/>
+  <text x="52" y="358" font-size="14" font-weight="600" fill="#26215c">Kernel space</text>
+  <text x="52" y="374" font-size="11" fill="#3c3489">Physical addresses from 0x80200000 — supervisor mode (S-mode)</text>
+
+  <!-- Boot block -->
+  <rect x="52" y="386" width="330" height="154" rx="10" fill="#cecbf6" stroke="#534ab7" stroke-width="1"/>
+  <rect x="52" y="386" width="330" height="32" rx="10" fill="#534ab7"/>
+  <rect x="52" y="406" width="330" height="12" fill="#534ab7"/>
+  <text x="217" y="408" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Boot sequence</text>
+  <text x="217" y="436" text-anchor="middle" font-size="11" fill="#26215c">1. QEMU loads kernel.elf at 0x80200000</text>
+  <text x="217" y="454" text-anchor="middle" font-size="11" fill="#26215c">2. boot() sets stack pointer</text>
+  <text x="217" y="472" text-anchor="middle" font-size="11" fill="#26215c">3. kernel_main() initialises BSS</text>
+  <text x="217" y="490" text-anchor="middle" font-size="11" fill="#26215c">4. Sets trap vector (stvec register)</text>
+  <text x="217" y="510" text-anchor="middle" font-size="11" fill="#3c3489">5. Creates idle, proc_a, proc_b</text>
+  <text x="217" y="528" text-anchor="middle" font-size="11" fill="#3c3489">6. Calls yield() to start scheduling</text>
+
+  <!-- Boot → Scheduler arrow -->
+  <line x1="382" y1="464" x2="416" y2="464" stroke="#534ab7" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Scheduler block -->
+  <rect x="418" y="386" width="330" height="154" rx="10" fill="#cecbf6" stroke="#534ab7" stroke-width="1"/>
+  <rect x="418" y="386" width="330" height="32" rx="10" fill="#534ab7"/>
+  <rect x="418" y="406" width="330" height="12" fill="#534ab7"/>
+  <text x="583" y="408" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Scheduler — yield()</text>
+  <text x="583" y="436" text-anchor="middle" font-size="11" fill="#26215c">Round-robin: picks next RUNNABLE process</text>
+  <text x="583" y="454" text-anchor="middle" font-size="11" fill="#26215c">switch_context() saves callee-saved regs</text>
+  <text x="583" y="472" text-anchor="middle" font-size="11" fill="#26215c">Restores sp, ra for next process</text>
+  <text x="583" y="490" text-anchor="middle" font-size="11" fill="#26215c">Switches SATP → new page table root</text>
+  <text x="583" y="510" text-anchor="middle" font-size="11" fill="#3c3489">sfence.vma flushes TLB</text>
+  <text x="583" y="528" text-anchor="middle" font-size="11" fill="#3c3489">sret returns to user mode</text>
+
+  <!-- Trap Handler -->
+  <rect x="52" y="556" width="330" height="130" rx="10" fill="#faece7" stroke="#993c1d" stroke-width="1"/>
+  <rect x="52" y="556" width="330" height="32" rx="10" fill="#d85a30"/>
+  <rect x="52" y="576" width="330" height="12" fill="#d85a30"/>
+  <text x="217" y="578" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Trap handler — kernel_entry()</text>
+  <text x="217" y="606" text-anchor="middle" font-size="11" fill="#4a1b0c">Triggered by ecall / exception</text>
+  <text x="217" y="624" text-anchor="middle" font-size="11" fill="#4a1b0c">Saves all 32 registers to trap frame</text>
+  <text x="217" y="642" text-anchor="middle" font-size="11" fill="#4a1b0c">Calls handle_trap() dispatcher</text>
+  <text x="217" y="660" text-anchor="middle" font-size="11" fill="#993c1d">Panics on unhandled exceptions</text>
+  <text x="217" y="678" text-anchor="middle" font-size="11" fill="#993c1d">Restores regs + sret on return</text>
+
+  <!-- Memory Management -->
+  <rect x="418" y="556" width="330" height="130" rx="10" fill="#faeeda" stroke="#854f0b" stroke-width="1"/>
+  <rect x="418" y="556" width="330" height="32" rx="10" fill="#ba7517"/>
+  <rect x="418" y="576" width="330" height="12" fill="#ba7517"/>
+  <text x="583" y="578" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Memory management</text>
+  <text x="583" y="606" text-anchor="middle" font-size="11" fill="#412402">alloc_pages() — bump allocator</text>
+  <text x="583" y="624" text-anchor="middle" font-size="11" fill="#412402">map_page() — SV32 two-level paging</text>
+  <text x="583" y="642" text-anchor="middle" font-size="11" fill="#412402">Each process gets own page table</text>
+  <text x="583" y="660" text-anchor="middle" font-size="11" fill="#854f0b">create_process() sets up VA space</text>
+  <text x="583" y="678" text-anchor="middle" font-size="11" fill="#854f0b">user_entry() via sret to USER_BASE</text>
+
+  <!-- SBI Interface -->
+  <rect x="52" y="700" width="696" height="64" rx="10" fill="#b5d4f4" stroke="#185fa5" stroke-width="1"/>
+  <rect x="52" y="700" width="696" height="32" rx="10" fill="#185fa5"/>
+  <rect x="52" y="720" width="696" height="12" fill="#185fa5"/>
+  <text x="400" y="722" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">SBI interface — sbi_call()</text>
+  <text x="400" y="750" text-anchor="middle" font-size="11" fill="#042c53">putchar() console output via ecall to M-mode firmware (OpenSBI) · Hardware abstraction layer</text>
+
+  <!-- KERNEL → HARDWARE arrow -->
+  <line x1="400" y1="782" x2="400" y2="810" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="416" y="800" font-size="11" fill="#555">M-mode firmware</text>
+
+  <!-- ═══════════════════════════════════════════════════
+       MEMORY LAYOUT
+  ═══════════════════════════════════════════════════ -->
+  <rect x="30" y="820" width="740" height="172" rx="16" fill="#e6f1fb" stroke="#185fa5" stroke-width="1.5"/>
+  <text x="52" y="845" font-size="14" font-weight="600" fill="#042c53">Memory layout</text>
+
+  <!-- Row 1 -->
+  <rect x="52" y="854" width="716" height="30" rx="6" fill="#b5d4f4" stroke="#378add" stroke-width="0.5"/>
+  <text x="68" y="874" font-size="11" font-weight="600" fill="#042c53">0x00000000 – 0x0FFFFFFF</text>
+  <text x="760" y="874" text-anchor="end" font-size="11" fill="#185fa5">User virtual address space</text>
+
+  <!-- Row 2 -->
+  <rect x="52" y="890" width="716" height="30" rx="6" fill="#9fe1cb" stroke="#1d9e75" stroke-width="0.5"/>
+  <text x="68" y="910" font-size="11" font-weight="600" fill="#085041">0x1000000  USER_BASE</text>
+  <text x="760" y="910" text-anchor="end" font-size="11" fill="#0f6e56">User process code + data mapped here</text>
+
+  <!-- Row 3 -->
+  <rect x="52" y="926" width="716" height="30" rx="6" fill="#cecbf6" stroke="#534ab7" stroke-width="0.5"/>
+  <text x="68" y="946" font-size="11" font-weight="600" fill="#26215c">0x80200000  Kernel base</text>
+  <text x="760" y="946" text-anchor="end" font-size="11" fill="#3c3489">Kernel code, data, and BSS</text>
+
+  <!-- Row 4 -->
+  <rect x="52" y="962" width="716" height="30" rx="6" fill="#d3d1c7" stroke="#888780" stroke-width="0.5"/>
+  <text x="68" y="982" font-size="11" font-weight="600" fill="#2c2c2a">__free_ram  (64 MB pool)</text>
+  <text x="760" y="982" text-anchor="end" font-size="11" fill="#444441">Process stacks, page tables, heap</text>
+
+</svg>
