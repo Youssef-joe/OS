@@ -11,6 +11,8 @@ extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
 
 void switch_context(uint32_t *prev_sp, uint32_t *next_sp);
 void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags);
+void putchar(char ch);
+struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long fid, long eid);
 
 extern struct process procs[];
 extern struct process *current_proc;
@@ -42,7 +44,7 @@ __attribute__((naked))
 __attribute__((aligned(4)))
 void kernel_entry(void) {
     __asm__ __volatile__(
-        "csrw sscratch, sp\n"
+        "csrrw sp, sscratch, sp\n"  /* sp=kernel stack top, sscratch=user sp */
         "addi sp, sp, -4 * 31\n"
         "sw ra,  4 * 0(sp)\n"
         "sw gp,  4 * 1(sp)\n"
@@ -74,13 +76,13 @@ void kernel_entry(void) {
         "sw s9,  4 * 27(sp)\n"
         "sw s10, 4 * 28(sp)\n"
         "sw s11, 4 * 29(sp)\n"
-
-        "csrr a0, sscratch\n"
-        "sw a0, 4 * 30(sp)\n"
-
+        "csrr a0, sscratch\n"        /* a0 = user sp */
+        "sw a0,  4 * 30(sp)\n"
+        /* restore sscratch to kernel stack top for next trap */
+        "addi a0, sp, 4 * 31\n"
+        "csrw sscratch, a0\n"
         "mv a0, sp\n"
         "call handle_trap\n"
-
         "lw ra,  4 * 0(sp)\n"
         "lw gp,  4 * 1(sp)\n"
         "lw tp,  4 * 2(sp)\n"
@@ -111,7 +113,7 @@ void kernel_entry(void) {
         "lw s9,  4 * 27(sp)\n"
         "lw s10, 4 * 28(sp)\n"
         "lw s11, 4 * 29(sp)\n"
-        "lw sp,  4 * 30(sp)\n"
+        "lw sp,  4 * 30(sp)\n"      /* restore user sp */
         "sret\n"
     );
 }
@@ -137,19 +139,53 @@ void yield(void) {
         :
         // he said "Don't forget the trailing comma!", man i spent a while understanding that shit
         : [satp] "r" (SATP_SV32 | ((uint32_t) next->page_table / PAGE_SIZE)),
-         [sscratch] "r" ((uint32_t) &next->stack[sizeof(next->stack)])
+         [sscratch] "r" ((uint32_t) &next->stack[8192])
+        : "memory"
     );
 
     struct process *prev = current_proc;
     current_proc = next;
     switch_context(&prev->sp, &next->sp);
 }
+
+void handle_syscall(struct trap_frame *f) {
+    switch(f->a3) {
+        case SYS_EXIT:
+            printf("process %d exited\n", current_proc->pid);
+            current_proc->state = PROC_EXITED;
+            yield();
+            PANIC("unreachable");
+        case SYS_PUTCHAR:
+            putchar(f->a0);
+            break;
+        case SYS_GETCHAR:
+            while (1) {
+                struct sbiret ret = sbi_call(0, 0, 0, 0, 0, 0, 0, 2);
+                if (ret.error >= 0) {
+                    f->a0 = ret.error;
+                    break;
+                }
+                yield();
+            }
+            break;
+        default:
+            PANIC("unexpected syscall a3=%x\n", f->a3);
+    }
+}
+
+
 void handle_trap(struct trap_frame *f) {
     uint32_t scause = READ_CSR(scause);
     uint32_t stval = READ_CSR(stval);
     uint32_t user_pc = READ_CSR(sepc);
+    if (scause == SCAUSE_ECALL) {
+        handle_syscall(f);
+        user_pc += 4;
+    } else {
+        PANIC("unexpected trap scause=%x, stval=%x, spec=%x\n", scause, stval, user_pc);
+    }
 
-    PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
+    WRITE_CSR(sepc, user_pc);
 }
 
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long fid, long eid) {
@@ -266,14 +302,18 @@ struct process *create_process(const void *image, size_t image_size) {
     uint32_t *page_table = (uint32_t *) alloc_pages(1);
     for (paddr_t paddr = (paddr_t) __kernel_base;
             paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
-    map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
 
-    for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
+    // map up to stack top (USER_BASE + 0x11000 covers binary + bss + stack)
+    uint32_t map_size = align_up(image_size, PAGE_SIZE) + 0x20000; // image + 128KB for bss/stack
+    for (uint32_t off = 0; off < map_size; off += PAGE_SIZE) {
         paddr_t page = alloc_pages(1);
-        size_t remaining = image_size - off;
-        size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
-
-        memcpy((void *) page, image + off, copy_size);
+        size_t copy_size = 0;
+        if (off < image_size) {
+            size_t remaining = image_size - off;
+            copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
+            memcpy((void *) page, image + off, copy_size);
+        }
         map_page(page_table, USER_BASE + off, page, PAGE_U | PAGE_R | PAGE_W | PAGE_X);
     }
 
@@ -364,8 +404,7 @@ void kernel_main(void) {
     idle_proc->pid = 0; // idle wink wink
     current_proc = idle_proc;
 
-    proc_a = create_process(proc_a_entry, 0);
-    proc_b = create_process(proc_b_entry, 0);
+    create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
 
     yield();
     PANIC("switched to idle process");

@@ -11,6 +11,10 @@
 #define PAGE_U (1 << 4) //User (accessible in user mode)
 #define USER_BASE 0x1000000
 #define SSTATUS_SPIE (1 << 5)
+#define SCAUSE_ECALL 8
+#define SYS_PUTCHAR 1
+#define SYS_GETCHAR 2
+#define PROC_EXITED 2 // here we define the process exit to turn off the process when we type exit 
 
 struct process {
     int pid; // you're not dumb now as i didn't recognize it at first, that is the process id
