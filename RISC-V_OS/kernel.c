@@ -17,6 +17,7 @@ struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, lo
 extern struct process procs[];
 extern struct process *current_proc;
 extern struct process *idle_proc;
+struct block_device *disk;
 
 // ↓ __attribute__((naked)) is very important!
 __attribute__((naked)) void user_entry(void) {
@@ -148,6 +149,11 @@ void yield(void) {
     switch_context(&prev->sp, &next->sp);
 }
 
+paddr_t alloc_pages(uint32_t n);
+int file_open(uint32_t inode_no);
+int file_close(int fd);
+int file_read(int fd, void *buf, uint32_t count);
+int file_write(int fd, const void *buf, uint32_t count);
 void handle_syscall(struct trap_frame *f) {
     switch(f->a3) {
         case SYS_EXIT:
@@ -167,6 +173,40 @@ void handle_syscall(struct trap_frame *f) {
                 }
                 yield();
             }
+            break;
+        case SYS_DISK_READ:
+            {
+                void *kbuf = (void *) alloc_pages(1);
+                if (disk->read(f->a0, kbuf) == 0) {
+                    memcpy((void *)f->a1, kbuf, BLOCK_SIZE);
+                    f->a0 = 0;
+                } else {
+                    f->a0 = -1;
+                }
+            }
+            break;
+        case SYS_DISK_WRITE:
+            {
+                void *kbuf = (void *) alloc_pages(1);
+                memcpy(kbuf, (void *)f->a1, BLOCK_SIZE);
+                if (disk->write(f->a0, kbuf) == 0) {
+                    f->a0 = 0;
+                } else {
+                    f->a0 = -1;
+                }
+            }
+            break;
+        case SYS_FILE_OPEN:
+            f->a0 = file_open(f->a0);
+            break;
+        case SYS_FILE_CLOSE:
+            f->a0 = file_close(f->a0);
+            break;
+        case SYS_FILE_READ:
+            f->a0 = file_read(f->a0, (void *)f->a1, f->a2);
+            break;
+        case SYS_FILE_WRITE:
+            f->a0 = file_write(f->a0, (const void *)f->a1, f->a2);
             break;
         default:
             PANIC("unexpected syscall a3=%x\n", f->a3);
@@ -264,6 +304,96 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp,
 }
 
 struct process procs[PROCS_MAX];
+
+static char ramdisk[1024 * BLOCK_SIZE]; // 1024 blocks, simple RAM disk
+
+int ramdisk_read(uint32_t block_no, void *buf) {
+    if (block_no >= 1024) return -1;
+    memcpy(buf, ramdisk + block_no * BLOCK_SIZE, BLOCK_SIZE);
+    return 0;
+}
+
+int ramdisk_write(uint32_t block_no, const void *buf) {
+    if (block_no >= 1024) return -1;
+    memcpy(ramdisk + block_no * BLOCK_SIZE, buf, BLOCK_SIZE);
+    return 0;
+}
+
+static struct inode inodes[INODES_MAX];
+static struct file files[FILES_MAX];
+
+int file_open(uint32_t inode_no) {
+    if (inode_no >= INODES_MAX) return -1;
+    for (int i = 0; i < FILES_MAX; i++) {
+        if (files[i].ref == 0) {
+            files[i].ref = 1;
+            files[i].inode = &inodes[inode_no];
+            files[i].offset = 0;
+            return i;
+        }
+    }
+    return -1;
+}
+
+int file_close(int fd) {
+    if (fd < 0 || fd >= FILES_MAX || files[fd].ref == 0) return -1;
+    files[fd].ref--;
+    return 0;
+}
+
+int file_read(int fd, void *buf, uint32_t count) {
+    if (fd < 0 || fd >= FILES_MAX || files[fd].ref == 0) return -1;
+    struct file *f = &files[fd];
+    uint32_t remaining = f->inode->size - f->offset;
+    if (count > remaining) count = remaining;
+    uint32_t bytes_read = 0;
+    while (bytes_read < count) {
+        uint32_t block_idx = f->offset / BLOCK_SIZE;
+        if (block_idx >= 10) break; // no more blocks
+        uint32_t block_off = f->offset % BLOCK_SIZE;
+        uint32_t block_no = f->inode->blocks[block_idx];
+        if (block_no == 0) break; // no block
+        void *kbuf = (void *) alloc_pages(1);
+        disk->read(block_no, kbuf);
+        uint32_t to_copy = BLOCK_SIZE - block_off;
+        if (to_copy > count - bytes_read) to_copy = count - bytes_read;
+        memcpy((char *)buf + bytes_read, (char *)kbuf + block_off, to_copy);
+        bytes_read += to_copy;
+        f->offset += to_copy;
+    }
+    return bytes_read;
+}
+
+int file_write(int fd, const void *buf, uint32_t count) {
+    if (fd < 0 || fd >= FILES_MAX || files[fd].ref == 0) return -1;
+    struct file *f = &files[fd];
+    uint32_t bytes_written = 0;
+    while (bytes_written < count) {
+        uint32_t block_idx = f->offset / BLOCK_SIZE;
+        if (block_idx >= 10) break;
+        uint32_t block_off = f->offset % BLOCK_SIZE;
+        uint32_t block_no = f->inode->blocks[block_idx];
+        if (block_no == 0) {
+            // allocate new block, say next free
+            static uint32_t next_block = 10; // assume blocks 0-9 reserved
+            block_no = next_block++;
+            f->inode->blocks[block_idx] = block_no;
+        }
+        void *kbuf = (void *) alloc_pages(1);
+        if (block_off > 0 || (count - bytes_written) < BLOCK_SIZE) {
+            // read existing
+            disk->read(block_no, kbuf);
+        }
+        uint32_t to_copy = BLOCK_SIZE - block_off;
+        if (to_copy > count - bytes_written) to_copy = count - bytes_written;
+        memcpy((char *)kbuf + block_off, (char *)buf + bytes_written, to_copy);
+        disk->write(block_no, kbuf);
+        bytes_written += to_copy;
+        f->offset += to_copy;
+        if (f->offset > f->inode->size) f->inode->size = f->offset;
+    }
+    return bytes_written;
+}
 
 extern char __kernel_base[];
 
@@ -390,7 +520,17 @@ void kernel_main(void) {
     //     putchar(s[i]);
     // }
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
-    
+
+    disk = (struct block_device *) alloc_pages(1);
+    disk->read = ramdisk_read;
+    disk->write = ramdisk_write;
+    disk->block_count = 1024;
+
+    // Initialize file system
+    inodes[0].size = 0;
+    memset(inodes[0].blocks, 0, sizeof(inodes[0].blocks));
+    inodes[0].blocks[0] = 10; // allocate first data block
+
     // paddr_t paddr0 = alloc_pages(2);
     // paddr_t paddr1 = alloc_pages(1);
     // printf("alloc_pages test: paddr0=%x\n", paddr0);

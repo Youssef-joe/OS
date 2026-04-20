@@ -30,6 +30,22 @@ __attribute__((noreturn)) void exit(void) {
     for(;;);
 }
 
+int open(uint32_t inode_no) {
+    return syscall(SYS_FILE_OPEN, inode_no, 0, 0);
+}
+
+int close(int fd) {
+    return syscall(SYS_FILE_CLOSE, fd, 0, 0);
+}
+
+int read(int fd, void *buf, uint32_t count) {
+    return syscall(SYS_FILE_READ, fd, (int)buf, count);
+}
+
+int write(int fd, const void *buf, uint32_t count) {
+    return syscall(SYS_FILE_WRITE, fd, (int)buf, count);
+}
+
 __attribute__((section(".text.start")))
 __attribute__((naked))
 void start(void) {
