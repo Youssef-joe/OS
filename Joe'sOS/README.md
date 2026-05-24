@@ -1,6 +1,7 @@
 # Joe's OS
 
 This project builds a tiny 32-bit operating system kernel in C++ and packages it into a bootable floppy image that runs in QEMU on macOS.
+It now includes a basic interrupt setup, PIT timer ticks, and IRQ-driven keyboard input.
 
 ## Requirements
 
@@ -25,3 +26,4 @@ This project builds a tiny 32-bit operating system kernel in C++ and packages it
 - `clear`
 - `echo <text>`
 - `halt`
+- `uptime`

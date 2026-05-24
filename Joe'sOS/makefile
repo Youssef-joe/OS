@@ -11,7 +11,7 @@ CXXFLAGS := $(COMMON_FLAGS) -std=c++17
 ASFLAGS := -f elf32
 LDFLAGS := -m elf_i386 -T linker.ld --nostdlib
 
-KERNEL_OBJECTS := $(BUILD_DIR)/kernel_entry.o $(BUILD_DIR)/kernel.o
+KERNEL_OBJECTS := $(BUILD_DIR)/kernel_entry.o $(BUILD_DIR)/interrupts.o $(BUILD_DIR)/kernel.o
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 KERNEL_BIN := $(BUILD_DIR)/kernel.bin
 KERNEL_SECTORS := $(BUILD_DIR)/kernel_sectors.inc
@@ -29,6 +29,9 @@ $(BUILD_DIR)/kernel.o: kernel.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/kernel_entry.o: kernel_entry.asm | $(BUILD_DIR)
+	$(ASM) $(ASFLAGS) $< -o $@
+
+$(BUILD_DIR)/interrupts.o: interrupts.asm | $(BUILD_DIR)
 	$(ASM) $(ASFLAGS) $< -o $@
 
 $(KERNEL_ELF): linker.ld $(KERNEL_OBJECTS)
