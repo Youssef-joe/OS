@@ -1,35 +1,58 @@
+BUILD_DIR := build
 
-# sudo apt-get install g++ binutils libc6-dev-i386
+ASM := nasm
+CC := clang
+CXX := clang++
+LD := ld.lld
+OBJCOPY := llvm-objcopy
 
-GCCPARAMS = -m32 -fno-use-cxa-atexit -nostdlib -fno-builtin -fno-rtti -fno-exceptions -fno-leading-underscore
-ASPARAMS = -32
-LDPARAMS  = -melf_i386
+COMMON_FLAGS := -target i386-none-elf -ffreestanding -fno-exceptions -fno-rtti -fno-stack-protector -fno-pic -m32 -nostdlib -Wall -Wextra -Wpedantic
+CXXFLAGS := $(COMMON_FLAGS) -std=c++17
+ASFLAGS := -f elf32
+LDFLAGS := -m elf_i386 -T linker.ld --nostdlib
 
-objects = loader.o kernel.o
+KERNEL_OBJECTS := $(BUILD_DIR)/kernel_entry.o $(BUILD_DIR)/kernel.o
+KERNEL_ELF := $(BUILD_DIR)/kernel.elf
+KERNEL_BIN := $(BUILD_DIR)/kernel.bin
+KERNEL_SECTORS := $(BUILD_DIR)/kernel_sectors.inc
+BOOT_BIN := $(BUILD_DIR)/boot.bin
+IMAGE := $(BUILD_DIR)/joesos.img
 
+.PHONY: all run run-headless clean
 
+all: $(IMAGE)
 
-%.o: %.cpp
-	gcc $(GCCPARAMS) -c -o $@ $<
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
 
-%.o: %.s
-	i386-elf-as $(ASPARAMS) -o $@ $<
+$(BUILD_DIR)/kernel.o: kernel.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-mykernel.bin: linker.ld $(objects)
-	ld $(LDPARAMS) -T $< -o $@ $(objects)
+$(BUILD_DIR)/kernel_entry.o: kernel_entry.asm | $(BUILD_DIR)
+	$(ASM) $(ASFLAGS) $< -o $@
 
-install: mykernel.bin
-	sudo cp $< /boot/mykernel.bin
-mykernel.iso: mykernel.bin
-	mkdir iso
-	mkdir iso/boot
-	mkdir iso/boot/grub
-	cp $< iso/boot/
-	echo 'set timeout=0' >> iso/boot/grub/grub.cfg
-	echo 'set defult=0' >> iso/boot/grub/grub.cfg
-	echo '' >> iso/boot/grub/grub.cfg
-	echo 'menuentry "My Operating System" {' >> iso/boot/grub/grub.cfg
-	echo ' multiboot /boot/mykernel.bin' >> iso/boot/grub/grub.cfg
-	echo ' boot' >> iso/boot/grub/grub.cfg
-	echo ' }' >> iso/boot/grub/grub.cfg
-	echo '' >> iso/boot/grub/grub.cfg
+$(KERNEL_ELF): linker.ld $(KERNEL_OBJECTS)
+	$(LD) $(LDFLAGS) -o $@ $(KERNEL_OBJECTS)
+
+$(KERNEL_BIN): $(KERNEL_ELF)
+	$(OBJCOPY) -O binary $< $@
+
+$(KERNEL_SECTORS): $(KERNEL_BIN) | $(BUILD_DIR)
+	perl -e 'my $$size = -s shift; my $$sectors = int(($$size + 511) / 512); die "kernel too large\n" if $$sectors < 1 || $$sectors > 128; print "KERNEL_SECTORS equ $$sectors\n";' $< > $@
+
+$(BOOT_BIN): boot.asm $(KERNEL_SECTORS)
+	$(ASM) -f bin $< -o $@
+
+$(IMAGE): $(BOOT_BIN) $(KERNEL_BIN) | $(BUILD_DIR)
+	dd if=/dev/zero of=$@ bs=512 count=2880
+	dd if=$(BOOT_BIN) of=$@ conv=notrunc
+	dd if=$(KERNEL_BIN) of=$@ bs=512 seek=1 conv=notrunc
+
+run: $(IMAGE)
+	qemu-system-i386 -drive format=raw,file=$(IMAGE)
+
+run-headless: $(IMAGE)
+	qemu-system-i386 -drive format=raw,file=$(IMAGE) -display none -serial stdio
+
+clean:
+	rm -rf $(BUILD_DIR)

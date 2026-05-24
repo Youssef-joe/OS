@@ -1,32 +1,23 @@
-ENTRY(loader)
-OUTPUT_FORMAT(elf32-i386)
-OUTPUT_ARCH(i386:i386)
+ENTRY(_start)
 
 SECTIONS
 {
-  . = 0x0100000;
+  . = 0x1000;
 
   .text :
   {
-    *(.multiboot)
     *(.text*)
-    *(.rodata)
+    *(.rodata*)
   }
 
-  .data  :
+  .data :
   {
-    start_ctors = .;
-    KEEP(*( .init_array ));
-    KEEP(*(SORT_BY_INIT_PRIORITY( .init_array.* )));
-    end_ctors = .;
-
-    *(.data)
+    *(.data*)
   }
 
-  .bss  :
+  .bss :
   {
-    *(.bss)
+    *(.bss*)
+    *(COMMON)
   }
-
-  /DISCARD/ : { *(.fini_array*) *(.comment) }
 }
