@@ -9,6 +9,7 @@ extern "C" void disable_interrupts();
 extern "C" void* isr_stub_table[];
 
 namespace {
+// Tiny kernel constants: the numbers that make hardware stop being mysterious and start being bossed around.
 constexpr u16 kVgaWidth = 80;
 constexpr u16 kVgaHeight = 25;
 constexpr u16 kDefaultColor = 0x0F;
@@ -23,6 +24,7 @@ constexpr u8 kPitCommand = 0x43;
 constexpr u8 kPitChannel0 = 0x40;
 constexpr u32 kPitFrequency = 100;
 
+// Global state: the kernel's short-term memory, which is exactly as elegant as it sounds.
 volatile u16* const kVideoMemory = reinterpret_cast<u16*>(0xB8000);
 u16 g_row = 0;
 u16 g_column = 0;
@@ -61,6 +63,7 @@ struct InterruptFrame {
 IdtEntry g_idt[256];
 IdtDescriptor g_idt_descriptor;
 
+// Port I/O: the old-fashioned way to talk to hardware, because sometimes the hardware refuses email.
 inline void outb(u16 port, u8 value) {
     asm volatile("outb %0, %1" : : "a"(value), "Nd"(port));
 }
@@ -71,10 +74,12 @@ inline u8 inb(u16 port) {
     return value;
 }
 
+// VGA helpers: because text-mode graphics are what happens when ambition meets 1980s furniture.
 u16 make_vga_entry(char character, u16 color) {
     return static_cast<u16>(character) | static_cast<u16>(color << 8);
 }
 
+// Serial output: for when the screen is too glamorous and we need the terminal to suffer too.
 void serial_write_char(char c) {
     while ((inb(kSerialPort + 5) & 0x20) == 0) {
     }
@@ -92,6 +97,7 @@ void serial_init() {
     outb(kSerialPort + 4, 0x0B);
 }
 
+// Screen management: the part where the kernel acts like a tiny stage manager.
 void clear_row(u16 row) {
     for (u16 col = 0; col < kVgaWidth; ++col) {
         kVideoMemory[row * kVgaWidth + col] = make_vga_entry(' ', g_color);
@@ -114,6 +120,7 @@ void scroll_if_needed() {
     g_row = kVgaHeight - 1;
 }
 
+// Character output: one glyph at a time, like a printer with opinions.
 void put_char(char c) {
     if (c == '\n') {
         g_column = 0;
@@ -143,6 +150,7 @@ void put_char(char c) {
     }
 }
 
+// String helpers: because std::string is not invited to this freestanding party.
 void print(const char* text) {
     for (u32 i = 0; text[i] != '\0'; ++i) {
         put_char(text[i]);
@@ -167,6 +175,7 @@ void print_u32(u32 value) {
     }
 }
 
+// Console housekeeping: reset the stage before the next round of tiny command theater.
 void clear_screen() {
     g_row = 0;
     g_column = 0;
@@ -175,6 +184,7 @@ void clear_screen() {
     }
 }
 
+// Plain string utilities: no cleverness, just enough honesty to compare bytes.
 bool strings_equal(const char* left, const char* right) {
     u32 index = 0;
     while (left[index] != '\0' || right[index] != '\0') {
@@ -186,6 +196,7 @@ bool strings_equal(const char* left, const char* right) {
     return true;
 }
 
+// Prefix matching: the kernel's version of "close enough, continue talking."
 bool starts_with(const char* text, const char* prefix) {
     for (u32 i = 0; prefix[i] != '\0'; ++i) {
         if (text[i] != prefix[i]) {
@@ -195,6 +206,7 @@ bool starts_with(const char* text, const char* prefix) {
     return true;
 }
 
+// Keyboard map: translated from scancodes into human-friendly regret.
 char scancode_to_char(u8 scancode) {
     switch (scancode) {
         case 0x02: return '1';
@@ -240,6 +252,7 @@ char scancode_to_char(u8 scancode) {
     }
 }
 
+// Ring buffer: because keyboard input arrives whenever it feels like it.
 void enqueue_key(char key) {
     const u16 next = static_cast<u16>((g_keyboard_head + 1) % kKeyboardBufferSize);
     if (next == g_keyboard_tail) {
@@ -250,6 +263,7 @@ void enqueue_key(char key) {
     g_keyboard_head = next;
 }
 
+// IDT setup: teaching the CPU where to send its complaints.
 void set_idt_gate(u8 vector, void (*handler)()) {
     const u32 address = reinterpret_cast<u32>(handler);
     g_idt[vector].offset_low = static_cast<u16>(address & 0xFFFF);
@@ -259,6 +273,7 @@ void set_idt_gate(u8 vector, void (*handler)()) {
     g_idt[vector].offset_high = static_cast<u16>((address >> 16) & 0xFFFF);
 }
 
+// Interrupt plumbing: 48 real stubs, then a long list of "please don't do anything weird."
 void initialize_idt() {
     for (u32 vector = 0; vector < 48; ++vector) {
         set_idt_gate(static_cast<u8>(vector),
@@ -275,6 +290,7 @@ void initialize_idt() {
     load_idt(&g_idt_descriptor);
 }
 
+// PIC remapping: moving the interrupt furniture so the CPU stops tripping over it.
 void remap_pic() {
     const u8 master_mask = inb(kPic1Data);
     const u8 slave_mask = inb(kPic2Data);
@@ -295,6 +311,7 @@ void remap_pic() {
     outb(kPic2Data, slave_mask);
 }
 
+// IRQ masks: the kernel's very selective guest list.
 void set_irq_mask(u8 irq, bool masked) {
     const u16 port = irq < 8 ? kPic1Data : kPic2Data;
     const u8 bit = irq < 8 ? irq : static_cast<u8>(irq - 8);
@@ -309,6 +326,7 @@ void set_irq_mask(u8 irq, bool masked) {
     outb(port, value);
 }
 
+// PIT setup: the clock gets a personality, and then starts interrupting us on schedule.
 void initialize_timer(u32 frequency) {
     const u32 divisor = 1193180 / frequency;
     outb(kPitCommand, 0x36);
@@ -316,6 +334,7 @@ void initialize_timer(u32 frequency) {
     outb(kPitChannel0, static_cast<u8>((divisor >> 8) & 0xFF));
 }
 
+// End-of-interrupt: the polite little wave that says "thanks, we saw that."
 void send_eoi(u8 interrupt_number) {
     if (interrupt_number >= 40) {
         outb(kPic2Command, 0x20);
@@ -323,6 +342,7 @@ void send_eoi(u8 interrupt_number) {
     outb(kPic1Command, 0x20);
 }
 
+// Busy-waiting with a nap button: not glamorous, but very on-brand for early kernels.
 char read_key() {
     for (;;) {
         disable_interrupts();
@@ -338,6 +358,7 @@ char read_key() {
     }
 }
 
+// Backspace: undoing bad life choices one column at a time.
 void backspace() {
     if (g_column == 0) {
         return;
@@ -350,6 +371,7 @@ void backspace() {
     serial_write_char('\b');
 }
 
+// Halt forever: the kernel's version of "I'm done, you may all leave now."
 void halt_forever() {
     print("System halted.\n");
     for (;;) {
@@ -357,6 +379,7 @@ void halt_forever() {
     }
 }
 
+// Built-in help: because even tiny operating systems deserve a manual, sort of.
 void show_help() {
     print("help  - list commands\n");
     print("about - show OS info\n");
@@ -366,6 +389,7 @@ void show_help() {
     print("uptime - show timer ticks\n");
 }
 
+// Command dispatcher: the tiny bureaucracy that decides what the shell is allowed to do.
 void handle_command(const char* command) {
     if (strings_equal(command, "help")) {
         show_help();
@@ -409,18 +433,22 @@ void handle_command(const char* command) {
     print("Unknown command. Type 'help'.\n");
 }
 
+// Prompt: the kernel's way of saying "go ahead, impress me."
 void prompt() {
     print("joe@os> ");
 }
 }  // namespace
 
+// Interrupt handler: the place where hardware interrupts come in wearing tiny hats and demands.
 extern "C" void interrupt_handler(InterruptFrame* frame) {
+    // Timer IRQ: the one clock interrupt we invited on purpose.
     if (frame->interrupt_number == 32) {
         ++g_timer_ticks;
         send_eoi(32);
         return;
     }
 
+    // Keyboard IRQ: where scancodes arrive looking like cryptic goblins.
     if (frame->interrupt_number == 33) {
         const u8 scancode = inb(0x60);
         if ((scancode & 0x80) == 0) {
@@ -446,11 +474,13 @@ extern "C" void interrupt_handler(InterruptFrame* frame) {
 }
 
 extern "C" void kernel_main() {
+    // Startup sequence: wake up the serial port, clean the stage, and act like we planned this.
     serial_init();
     clear_screen();
     print("Joe's OS\n");
     print("Starting kernel services...\n");
 
+    // Core kernel plumbing: interrupts, timers, and the minimum viable "things happening".
     initialize_idt();
     remap_pic();
     initialize_timer(kPitFrequency);
@@ -461,10 +491,12 @@ extern "C" void kernel_main() {
 
     char command[kCommandBufferSize];
 
+    // Tiny shell loop: the kernel's infinite customer service desk.
     for (;;) {
         prompt();
 
         u16 length = 0;
+        // Read a command one key at a time, because drama is part of the experience.
         for (;;) {
             const char key = read_key();
 

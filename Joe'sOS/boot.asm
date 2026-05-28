@@ -5,8 +5,10 @@ KERNEL_LOAD_ADDR equ 0x1000
 
 %include "build/kernel_sectors.inc"
 
+; Boot sector: the first 512 bytes get the job of pretending this is all very normal.
 start:
     cli
+    ; Set up a tiny safe place before anything ambitious happens.
     xor ax, ax
     mov ds, ax
     mov es, ax
@@ -16,9 +18,11 @@ start:
 
     mov [boot_drive], dl
 
+    ; Say hello before the disk reading begins to misbehave.
     mov si, boot_message
     call print_string
 
+    ; Load the kernel one sector at a time, because big dreams still fit in chunks.
     mov bx, KERNEL_LOAD_ADDR
     mov byte [current_sector], 2
     mov byte [current_head], 0
@@ -29,6 +33,7 @@ load_kernel:
     cmp cx, 0
     je enter_protected_mode
 
+    ; BIOS disk read: the ancient courier service that somehow still works.
     mov ah, 0x02
     mov al, 0x01
     mov ch, [current_track]
@@ -41,6 +46,7 @@ load_kernel:
     add bx, 512
     dec cx
 
+    ; Walk CHS like it is 1987 and we are trying not to upset it.
     inc byte [current_sector]
     cmp byte [current_sector], 19
     jl load_kernel
@@ -54,6 +60,7 @@ load_kernel:
     inc byte [current_track]
     jmp load_kernel
 
+; If the disk fails, we stop here and let the user enjoy the suspense.
 disk_error:
     mov si, disk_error_message
     call print_string
@@ -61,6 +68,7 @@ disk_error:
     hlt
     jmp $
 
+; BIOS teletype output: the original println with extra nostalgia.
 print_string:
     mov ah, 0x0E
 
@@ -74,6 +82,7 @@ print_string:
 .done:
     ret
 
+; Protected mode: where the kernel stops playing and starts being the boss.
 enter_protected_mode:
     cli
     lgdt [gdt_descriptor]
@@ -85,6 +94,7 @@ enter_protected_mode:
 
 [bits 32]
 protected_mode:
+    ; Reload data segments so protected mode does not start off confused.
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -93,14 +103,17 @@ protected_mode:
     mov ss, ax
     mov esp, 0x90000
 
+    ; Jump into the kernel proper and hope it brought its own shoes.
     mov eax, KERNEL_LOAD_ADDR
     call eax
 
+; In case the kernel ever returns, we choose the diplomatic option: eternal silence.
 halt:
     cli
     hlt
     jmp halt
 
+; GDT: three entries, one is "do not touch this" and the others are useful.
 gdt_start:
     dq 0x0000000000000000
     dq 0x00CF9A000000FFFF
@@ -115,6 +128,7 @@ CODE_SEG equ 0x08
 DATA_SEG equ 0x10
 
 [bits 16]
+; Boot messages: because even boot sectors deserve a little stage presence.
 boot_message db "Booting Joe's OS...", 0x0D, 0x0A, 0
 disk_error_message db "Disk read failed.", 0x0D, 0x0A, 0
 boot_drive db 0

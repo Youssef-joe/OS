@@ -27,3 +27,16 @@ It now includes a basic interrupt setup, PIT timer ticks, and IRQ-driven keyboar
 - `echo <text>`
 - `halt`
 - `uptime`
+
+## Scaling Joe'sOS
+
+SerenityOS is a good reference because it separates the system into clear layers:
+
+- boot and early CPU setup
+- kernel core and interrupt handling
+- drivers and hardware abstractions
+- userland tools and services
+- build/run scripts and documentation
+
+Joe'sOS is currently much smaller, but it can grow the same way if we keep those boundaries explicit.
+See [`ROADMAP.md`](ROADMAP.md) for a practical phased path forward.
