@@ -34,6 +34,32 @@ volatile u16 g_keyboard_head = 0;
 volatile u16 g_keyboard_tail = 0;
 volatile u64 g_timer_ticks = 0;
 
+enum class ProcessState : u8 {
+    Unused,
+    Ready,
+    Running,
+    Exited,
+};
+
+struct Process {
+    u32 pid;
+    char name[16];
+    ProcessState state;
+    u32 cpu_ticks;
+    u32 start_tick;
+};
+
+constexpr u32 kMaxProcesses = 8;
+constexpr u32 kProcessTimeSliceTicks = 5;
+constexpr u32 kProcessNameSize = 16;
+
+Process g_processes[kMaxProcesses];
+u32 g_process_count = 0;
+u32 g_next_pid = 1;
+u32 g_current_process_index = 0;
+u32 g_process_slice_ticks = 0;
+bool g_processes_initialized = false;
+
 struct [[gnu::packed]] IdtEntry {
     u16 offset_low;
     u16 selector;
@@ -173,6 +199,159 @@ void print_u32(u32 value) {
     while (length > 0) {
         put_char(digits[--length]);
     }
+}
+
+void print_process_state(ProcessState state) {
+    switch (state) {
+        case ProcessState::Unused:
+            print("unused");
+            return;
+        case ProcessState::Ready:
+            print("ready");
+            return;
+        case ProcessState::Running:
+            print("running");
+            return;
+        case ProcessState::Exited:
+            print("exited");
+            return;
+    }
+}
+
+Process* find_process_by_pid(u32 pid) {
+    for (u32 i = 0; i < kMaxProcesses; ++i) {
+        if (g_processes[i].state != ProcessState::Unused && g_processes[i].pid == pid) {
+            return &g_processes[i];
+        }
+    }
+
+    return nullptr;
+}
+
+void copy_process_name(char* destination, const char* source);
+
+Process* create_process(const char* name) {
+    for (u32 i = 0; i < kMaxProcesses; ++i) {
+        if (g_processes[i].state == ProcessState::Unused) {
+            Process& process = g_processes[i];
+            process.pid = g_next_pid++;
+            copy_process_name(process.name, name);
+            process.state = ProcessState::Ready;
+            process.cpu_ticks = 0;
+            process.start_tick = static_cast<u32>(g_timer_ticks);
+            ++g_process_count;
+            return &process;
+        }
+    }
+
+    return nullptr;
+}
+
+void initialize_processes() {
+    if (g_processes_initialized) {
+        return;
+    }
+
+    for (u32 i = 0; i < kMaxProcesses; ++i) {
+        g_processes[i].pid = 0;
+        for (u32 j = 0; j < kProcessNameSize; ++j) {
+            g_processes[i].name[j] = '\0';
+        }
+        g_processes[i].state = ProcessState::Unused;
+        g_processes[i].cpu_ticks = 0;
+        g_processes[i].start_tick = 0;
+    }
+
+    Process* idle = create_process("idle");
+    Process* shell = create_process("shell");
+    Process* clock = create_process("clock");
+
+    if (idle != nullptr) {
+        idle->state = ProcessState::Running;
+        g_current_process_index = static_cast<u32>(idle - g_processes);
+    }
+
+    if (shell != nullptr) {
+        shell->state = ProcessState::Ready;
+    }
+
+    if (clock != nullptr) {
+        clock->state = ProcessState::Ready;
+    }
+
+    g_processes_initialized = true;
+}
+
+void schedule_processes() {
+    if (g_process_count == 0) {
+        return;
+    }
+
+    ++g_process_slice_ticks;
+    Process& current = g_processes[g_current_process_index];
+    if (current.state != ProcessState::Unused && current.state != ProcessState::Exited) {
+        ++current.cpu_ticks;
+    }
+
+    if (g_process_slice_ticks < kProcessTimeSliceTicks) {
+        return;
+    }
+
+    g_process_slice_ticks = 0;
+
+    if (current.state == ProcessState::Running) {
+        current.state = ProcessState::Ready;
+    }
+
+    for (u32 offset = 1; offset <= kMaxProcesses; ++offset) {
+        const u32 candidate_index = static_cast<u32>((g_current_process_index + offset) % kMaxProcesses);
+        Process& candidate = g_processes[candidate_index];
+        if (candidate.state == ProcessState::Ready) {
+            candidate.state = ProcessState::Running;
+            g_current_process_index = candidate_index;
+            return;
+        }
+    }
+
+    if (current.state != ProcessState::Unused) {
+        current.state = ProcessState::Running;
+    }
+}
+
+void print_process_table() {
+    print("PID  STATE    CPU  NAME\n");
+    for (u32 i = 0; i < kMaxProcesses; ++i) {
+        const Process& process = g_processes[i];
+        if (process.state == ProcessState::Unused) {
+            continue;
+        }
+
+        print_u32(process.pid);
+        print("   ");
+        print_process_state(process.state);
+        print("   ");
+        print_u32(process.cpu_ticks);
+        print("   ");
+        print(process.name);
+        print("\n");
+    }
+}
+
+Process* current_process() {
+    if (g_process_count == 0) {
+        return nullptr;
+    }
+
+    if (g_processes[g_current_process_index].state == ProcessState::Unused) {
+        for (u32 i = 0; i < kMaxProcesses; ++i) {
+            if (g_processes[i].state != ProcessState::Unused) {
+                g_current_process_index = i;
+                break;
+            }
+        }
+    }
+
+    return &g_processes[g_current_process_index];
 }
 
 // Console housekeeping: reset the stage before the next round of tiny command theater.
@@ -385,8 +564,42 @@ void show_help() {
     print("about - show OS info\n");
     print("clear - clear the screen\n");
     print("echo  - print text back\n");
+    print("ps    - show process table\n");
+    print("proc  - show current process\n");
+    print("spawn - create a demo process\n");
+    print("kill  - remove a process by pid\n");
     print("halt  - stop the CPU\n");
     print("uptime - show timer ticks\n");
+}
+
+bool parse_u32(const char* text, u32& value) {
+    value = 0;
+    if (text[0] == '\0') {
+        return false;
+    }
+
+    for (u32 i = 0; text[i] != '\0'; ++i) {
+        if (text[i] < '0' || text[i] > '9') {
+            return false;
+        }
+
+        value = static_cast<u32>(value * 10 + static_cast<u32>(text[i] - '0'));
+    }
+
+    return true;
+}
+
+void copy_process_name(char* destination, const char* source) {
+    u32 index = 0;
+    for (; index + 1 < kProcessNameSize; ++index) {
+        if (source[index] == '\0') {
+            break;
+        }
+
+        destination[index] = source[index];
+    }
+
+    destination[index] = '\0';
 }
 
 // Command dispatcher: the tiny bureaucracy that decides what the shell is allowed to do.
@@ -403,6 +616,98 @@ void handle_command(const char* command) {
 
     if (strings_equal(command, "clear")) {
         clear_screen();
+        return;
+    }
+
+    if (strings_equal(command, "ps")) {
+        print_process_table();
+        return;
+    }
+
+    if (strings_equal(command, "proc")) {
+        Process* process = current_process();
+        if (process == nullptr) {
+            print("No processes are running yet.\n");
+            return;
+        }
+
+        print("Current process: ");
+        print(process->name);
+        print(" (pid ");
+        print_u32(process->pid);
+        print(", ");
+        print_process_state(process->state);
+        print(")\n");
+        return;
+    }
+
+    if (starts_with(command, "spawn ")) {
+        const char* name = command + 6;
+        while (name[0] == ' ') {
+            ++name;
+        }
+
+        if (name[0] == '\0') {
+            print("Usage: spawn <name>\n");
+            return;
+        }
+
+        disable_interrupts();
+        Process* process = create_process(name);
+        enable_interrupts();
+
+        if (process == nullptr) {
+            print("No free process slots.\n");
+            return;
+        }
+
+        print("Spawned process ");
+        print(process->name);
+        print(" with pid ");
+        print_u32(process->pid);
+        print("\n");
+        return;
+    }
+
+    if (starts_with(command, "kill ")) {
+        const char* pid_text = command + 5;
+        while (pid_text[0] == ' ') {
+            ++pid_text;
+        }
+
+        u32 pid = 0;
+        if (!parse_u32(pid_text, pid)) {
+            print("Usage: kill <pid>\n");
+            return;
+        }
+
+        disable_interrupts();
+        Process* process = find_process_by_pid(pid);
+        if (process != nullptr && process->pid != 1) {
+            process->state = ProcessState::Unused;
+            process->name[0] = '\0';
+            process->pid = 0;
+            process->cpu_ticks = 0;
+            process->start_tick = 0;
+            if (g_process_count > 0) {
+                --g_process_count;
+            }
+        }
+        enable_interrupts();
+
+        if (process == nullptr) {
+            print("No such process.\n");
+            return;
+        }
+
+        if (process->pid == 1) {
+            print("Refusing to kill idle.\n");
+            return;
+        }
+
+        print("Killed pid ");
+        print_u32(pid);
+        print("\n");
         return;
     }
 
@@ -444,6 +749,7 @@ extern "C" void interrupt_handler(InterruptFrame* frame) {
     // Timer IRQ: the one clock interrupt we invited on purpose.
     if (frame->interrupt_number == 32) {
         ++g_timer_ticks;
+        schedule_processes();
         send_eoi(32);
         return;
     }
@@ -486,6 +792,7 @@ extern "C" void kernel_main() {
     initialize_timer(kPitFrequency);
     set_irq_mask(0, false);
     set_irq_mask(1, false);
+    initialize_processes();
     print("Interrupts online. Type 'help' to get started.\n\n");
     enable_interrupts();
 
