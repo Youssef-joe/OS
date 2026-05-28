@@ -11,6 +11,7 @@ Joe'sOS already has:
 - basic interrupt handling
 - timer ticks and keyboard input
 - a tiny command loop
+- a minimal process table and round-robin bookkeeping
 - a flat build image for QEMU
 
 That is a solid base. The next step is to turn it into a layered system instead of a single growing kernel file.
@@ -55,7 +56,7 @@ That is a solid base. The next step is to turn it into a layered system instead 
 
 - add a RAM-backed filesystem first
 - then add a minimal persistent filesystem
-- introduce processes, file descriptors, and exec-style program loading
+- expand processes into separate address spaces, file descriptors, and exec-style program loading
 - keep the kernel-user boundary explicit
 
 ## What To Copy From Serenity
